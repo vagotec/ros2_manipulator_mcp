@@ -16,8 +16,14 @@ This index records only completed or approved project phases. Later phases are n
 | 9 - MCP Prompts for v0.1.0 | [README_PHASE_9.md](README_PHASE_9.md) | Complete |
 | 10 - Server Composition and MCP End-to-End | [README_PHASE_10.md](README_PHASE_10.md) | Complete |
 | 11 - OpenMANIPULATOR-X Full MCP Simulation E2E | [README_PHASE_11.md](README_PHASE_11.md) | Complete |
-| 12 - Real OpenMANIPULATOR-X Hardware Verification | [README_PHASE_12.md](README_PHASE_12.md) | Pre-hardware audit complete; real hardware verification deferred |
+| 12 - Real OpenMANIPULATOR-X Hardware Verification | [README_PHASE_12.md](README_PHASE_12.md) | Read/kinematics and planning-only verification complete; physical execution not performed |
 | 13 - v0.1.0 Final Audit and Release Preparation | [README_PHASE_13.md](README_PHASE_13.md) | Complete; ready with documented hardware-verification limitation |
+| 14 - v0.2.0 Execution Architecture and Safety Design | [README_PHASE_14.md](README_PHASE_14.md) | Complete; analysis and design only |
+| 15 - Execution Domain, State Machine, and Plan Reservation | [README_PHASE_15.md](README_PHASE_15.md) | Complete; backend-neutral foundation only |
+| 16 - Pre-execution Revalidation and Safety Gate | [README_PHASE_16.md](README_PHASE_16.md) | Complete; no execution adapter or motion |
+| 17 - Production Execution Backend and Workflow | [README_PHASE_17.md](README_PHASE_17.md) | Complete; mock-hardware verification only |
+| 18 - MCP Execution Surface and Mock E2E | [README_PHASE_18.md](README_PHASE_18.md) | Complete; physical execution remains disabled by default |
+| 19 - v0.2.0 Mock Execution Audit and RC Preparation | [README_PHASE_19.md](README_PHASE_19.md) | Complete; mock-only robustness audit |
 
 The approved architecture is:
 

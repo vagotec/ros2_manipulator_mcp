@@ -97,6 +97,7 @@ def test_resource_and_template_registration_is_exact_and_bounded() -> None:
         "manipulator://groups/{group}",
         "manipulator://scene/objects/{object_id}",
         "manipulator://plans/{plan_id}",
+        "manipulator://executions/{execution_id}",
     }
 
 

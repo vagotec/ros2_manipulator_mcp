@@ -155,6 +155,26 @@ def register_prompts(server: MCPServer) -> None:
             "policy validation is not certified physical safety."
         )
 
+    @server.prompt(
+        name="diagnose_execution_failure",
+        description="Diagnose one execution failure without retrying or changing state.",
+    )
+    async def diagnose_execution_failure(
+        execution_id: Annotated[
+            str, Field(description="Application-owned execution identifier.")
+        ],
+    ) -> str:
+        return (
+            f"Diagnose execution {execution_id} without changing state. Read "
+            f"manipulator://executions/{execution_id}, manipulator://health, "
+            "manipulator://safety, and the referenced plan resource. Review plan "
+            "provenance, pre-execution validation, start-state and scene-revision "
+            "findings, backend availability, timeout, quarantine, cancellation "
+            "ambiguity, and the MoveIt 2.12.4 stop compatibility behavior. Do not "
+            "invoke tools automatically, retry execution, publish stop commands, "
+            "or claim physical safety. CANCELLED is not certified physical standstill."
+        )
+
 
 def _provided_context(
     planning_group: str | None,

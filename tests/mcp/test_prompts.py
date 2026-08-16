@@ -16,6 +16,7 @@ def test_prompt_registration_and_argument_contracts() -> None:
         "review_motion_plan",
         "review_planning_scene_change",
         "safe_manipulation_workflow",
+        "diagnose_execution_failure",
     }
     review_arguments = {value.name: value for value in prompts["review_motion_plan"].arguments}
     workflow_arguments = {

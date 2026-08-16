@@ -3,6 +3,7 @@
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import StrEnum
 from math import isfinite
 from secrets import token_urlsafe
 from time import monotonic
@@ -17,13 +18,24 @@ from ros2_manipulator_mcp.domain import (
 )
 
 
+class _PlanState(StrEnum):
+    """Application-private execution ownership state."""
+
+    AVAILABLE = "available"
+    RESERVED = "reserved"
+    CONSUMED = "consumed"
+
+
 @dataclass(frozen=True)
 class _PlanEntry:
-    """A plan with application-only expiry metadata."""
+    """A plan with application-only expiry and ownership metadata."""
 
     plan: MotionPlan
     expires_at: float | None
     policy_id: str
+    state: _PlanState = _PlanState.AVAILABLE
+    reservation_id: str | None = None
+    remaining_ttl_seconds: float | None = None
 
 
 class PlanRegistry:
@@ -65,6 +77,18 @@ class PlanRegistry:
         """Create and store a plan under a fresh opaque identifier."""
         now = self._clock()
         self._remove_expired(now)
+        if len(self._entries) >= self._max_plans:
+            evictable = next(
+                (
+                    stored_id
+                    for stored_id, entry in self._entries.items()
+                    if entry.state is not _PlanState.RESERVED
+                ),
+                None,
+            )
+            if evictable is None:
+                raise RuntimeError("plan registry capacity is reserved")
+            del self._entries[evictable]
         plan_id = self._new_plan_id()
         plan = MotionPlan(
             plan_id=plan_id,
@@ -77,8 +101,6 @@ class PlanRegistry:
             None if self._ttl_seconds is None else now + self._ttl_seconds
         )
         self._entries[plan_id] = _PlanEntry(plan, expires_at, policy_id)
-        while len(self._entries) > self._max_plans:
-            self._entries.popitem(last=False)
         return plan
 
     def get(self, plan_id: str) -> DomainResult[MotionPlan]:
@@ -92,8 +114,15 @@ class PlanRegistry:
     def discard(self, plan_id: str) -> DomainResult[bool]:
         """Discard an unexpired plan by identifier."""
         self._remove_expired(self._clock())
-        if self._entries.pop(plan_id, None) is None:
+        entry = self._entries.get(plan_id)
+        if entry is None:
             return self._not_found(plan_id)
+        if entry.state is _PlanState.RESERVED:
+            return self._failure(
+                DomainErrorCode.PLAN_RESERVED,
+                f"Motion plan '{plan_id}' is reserved for execution.",
+            )
+        del self._entries[plan_id]
         return DomainResult(value=True)
 
     def validation_context(
@@ -106,6 +135,120 @@ class PlanRegistry:
         if entry is None:
             return self._not_found(plan_id)
         return DomainResult(value=(entry.plan, entry.policy_id))
+
+    def reserve_for_execution(
+        self,
+        plan_id: str,
+        reservation_id: str,
+    ) -> DomainResult[tuple[MotionPlan, str]]:
+        """Atomically pin an available plan for one execution owner."""
+        now = self._clock()
+        self._remove_expired(now)
+        entry = self._entries.get(plan_id)
+        if entry is None:
+            return self._not_found(plan_id)
+        if entry.state is _PlanState.RESERVED:
+            return self._failure(
+                DomainErrorCode.PLAN_RESERVED,
+                f"Motion plan '{plan_id}' is already reserved.",
+            )
+        if entry.state is _PlanState.CONSUMED:
+            return self._failure(
+                DomainErrorCode.PLAN_CONSUMED,
+                f"Motion plan '{plan_id}' has already been consumed.",
+            )
+        if not isinstance(reservation_id, str) or not reservation_id.strip():
+            return self._failure(
+                DomainErrorCode.INVALID_REQUEST,
+                "reservation_id must be a non-empty string.",
+            )
+        remaining = (
+            None
+            if entry.expires_at is None
+            else max(0.0, entry.expires_at - now)
+        )
+        self._entries[plan_id] = _PlanEntry(
+            entry.plan,
+            None,
+            entry.policy_id,
+            _PlanState.RESERVED,
+            reservation_id,
+            remaining,
+        )
+        return DomainResult(value=(entry.plan, entry.policy_id))
+
+    def release_reservation(
+        self,
+        plan_id: str,
+        reservation_id: str,
+    ) -> DomainResult[MotionPlan]:
+        """Return a reservation to available state without losing TTL."""
+        entry = self._reservation(plan_id, reservation_id)
+        if isinstance(entry, DomainResult):
+            return entry
+        now = self._clock()
+        expires_at = (
+            None
+            if entry.remaining_ttl_seconds is None
+            else now + entry.remaining_ttl_seconds
+        )
+        self._entries[plan_id] = _PlanEntry(
+            entry.plan,
+            expires_at,
+            entry.policy_id,
+        )
+        return DomainResult(value=entry.plan)
+
+    def consume_reservation(
+        self,
+        plan_id: str,
+        reservation_id: str,
+    ) -> DomainResult[MotionPlan]:
+        """Permanently prevent a reserved plan from future execution."""
+        entry = self._reservation(plan_id, reservation_id)
+        if isinstance(entry, DomainResult):
+            return entry
+        expires_at = (
+            None
+            if entry.remaining_ttl_seconds is None
+            else self._clock() + entry.remaining_ttl_seconds
+        )
+        self._entries[plan_id] = _PlanEntry(
+            entry.plan,
+            expires_at,
+            entry.policy_id,
+            _PlanState.CONSUMED,
+        )
+        return DomainResult(value=entry.plan)
+
+    def execution_context(
+        self,
+        plan_id: str,
+        reservation_id: str,
+    ) -> DomainResult[tuple[MotionPlan, str]]:
+        """Return a plan only to the execution that currently reserves it."""
+        entry = self._reservation(plan_id, reservation_id)
+        if isinstance(entry, DomainResult):
+            return entry
+        return DomainResult(value=(entry.plan, entry.policy_id))
+
+    def _reservation(
+        self,
+        plan_id: str,
+        reservation_id: str,
+    ) -> _PlanEntry | DomainResult:
+        entry = self._entries.get(plan_id)
+        if entry is None:
+            return self._not_found(plan_id)
+        if (
+            entry.state is not _PlanState.RESERVED
+            or entry.reservation_id != reservation_id
+        ):
+            return self._failure(
+                DomainErrorCode.PLAN_RESERVED,
+                "The motion plan is not reserved by this execution.",
+            )
+        return entry
 
     def _new_plan_id(self) -> str:
         """Generate a non-empty identifier not currently in the registry."""
@@ -120,7 +263,9 @@ class PlanRegistry:
         expired = tuple(
             plan_id
             for plan_id, entry in self._entries.items()
-            if entry.expires_at is not None and entry.expires_at <= now
+            if entry.state is not _PlanState.RESERVED
+            and entry.expires_at is not None
+            and entry.expires_at <= now
         )
         for plan_id in expired:
             del self._entries[plan_id]
@@ -133,3 +278,7 @@ class PlanRegistry:
                 f"Motion plan '{plan_id}' was not found or has expired.",
             )
         )
+
+    @staticmethod
+    def _failure(code: DomainErrorCode, message: str) -> DomainResult:
+        return DomainResult(error=DomainFailure(code, message))

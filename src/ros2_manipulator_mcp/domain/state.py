@@ -43,6 +43,7 @@ class RobotState:
 
     joints: JointState
     timestamp_seconds: float | None = None
+    sample_age_seconds: float | None = None
 
     def __post_init__(self) -> None:
         if self.timestamp_seconds is not None:
@@ -50,4 +51,10 @@ class RobotState:
                 self,
                 "timestamp_seconds",
                 non_negative(self.timestamp_seconds, "timestamp_seconds"),
+            )
+        if self.sample_age_seconds is not None:
+            object.__setattr__(
+                self,
+                "sample_age_seconds",
+                non_negative(self.sample_age_seconds, "sample_age_seconds"),
             )

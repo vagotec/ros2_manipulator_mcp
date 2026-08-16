@@ -79,7 +79,7 @@ def _server(*, max_dimension: float = 5.0):
     return create_server(service), backend
 
 
-def test_registration_exposes_only_approved_non_execution_tools() -> None:
+def test_registration_exposes_only_approved_tools() -> None:
     server, _ = _server()
     names = {tool.name for tool in asyncio.run(server.list_tools())}
 
@@ -92,8 +92,10 @@ def test_registration_exposes_only_approved_non_execution_tools() -> None:
         "discard_motion_plan", "validate_motion_plan", "get_planning_scene",
         "list_collision_objects", "get_collision_object",
         "apply_collision_object", "remove_collision_object",
+        "execute_motion_plan", "get_execution_status", "cancel_execution",
     }
-    assert not any("execute" in name or name.startswith("move_") for name in names)
+    assert "execute_trajectory" not in names
+    assert not any(name.startswith("move_") for name in names)
 
 
 def test_discovery_tool_returns_structured_application_data() -> None:

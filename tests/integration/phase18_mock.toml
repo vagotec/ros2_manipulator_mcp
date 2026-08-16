@@ -4,29 +4,29 @@ reference_manipulator = "open_manipulator_x"
 service_timeout_seconds = 5.0
 
 [execution]
-enabled = false
+enabled = true
 start_state_tolerance_rad = 0.02
-state_freshness_sec = 0.25
+state_freshness_sec = 1.0
 require_exact_scene_revision = true
 action_server_discovery_timeout_sec = 2.0
 goal_acceptance_timeout_sec = 2.0
-cancel_timeout_sec = 2.0
+cancel_timeout_sec = 5.0
 shutdown_timeout_sec = 5.0
 execution_timeout_multiplier = 2.0
 execution_timeout_margin_sec = 2.0
 execution_timeout_max_sec = 30.0
-stabilization_timeout_sec = 2.0
+stabilization_timeout_sec = 3.0
 stabilization_quiet_window_sec = 0.5
 stabilization_position_delta_rad = 0.001
 stabilization_velocity_rad_per_sec = 0.01
 
 [policy]
-policy_id = "default-v1"
-allowed_planning_groups = []
+policy_id = "phase18-mock"
+allowed_planning_groups = ["arm"]
 max_planning_time_seconds = 10.0
 max_planning_attempts = 5
-max_velocity_scaling_factor = 1.0
-max_acceleration_scaling_factor = 1.0
+max_velocity_scaling_factor = 0.2
+max_acceleration_scaling_factor = 0.2
 max_joint_targets = 16
 max_cartesian_waypoints = 100
 min_cartesian_step = 0.0001
@@ -37,6 +37,6 @@ allowed_object_id_prefixes = []
 max_collision_objects = 100
 max_primitive_dimension = 5.0
 allowed_primitive_types = ["box", "sphere", "cylinder", "cone"]
-allowed_scene_frames = []
+allowed_scene_frames = ["world"]
 allow_object_replace = false
 require_scene_revision = true

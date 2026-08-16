@@ -17,6 +17,7 @@ from moveit_msgs.msg import (
 )
 from sensor_msgs.msg import JointState as RosJointState
 from shape_msgs.msg import SolidPrimitive
+from trajectory_msgs.msg import JointTrajectoryPoint
 
 from ros2_manipulator_mcp.domain import (
     CollisionObject,
@@ -155,6 +156,22 @@ def from_trajectory_message(message: RobotTrajectory) -> Trajectory:
         for point in joint_trajectory.points
     )
     return Trajectory(tuple(joint_trajectory.joint_names), points)
+
+
+def to_trajectory_message(trajectory: Trajectory) -> RobotTrajectory:
+    """Convert a backend-neutral trajectory for MoveIt execution."""
+    message = RobotTrajectory()
+    message.joint_trajectory.joint_names = list(trajectory.joint_names)
+    for point in trajectory.points:
+        ros_point = JointTrajectoryPoint()
+        ros_point.positions = list(point.positions)
+        if point.velocities is not None:
+            ros_point.velocities = list(point.velocities)
+        if point.accelerations is not None:
+            ros_point.accelerations = list(point.accelerations)
+        ros_point.time_from_start = to_duration(point.time_from_start_seconds)
+        message.joint_trajectory.points.append(ros_point)
+    return message
 
 
 def to_goal_constraints(

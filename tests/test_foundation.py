@@ -8,7 +8,7 @@ from ros2_manipulator_mcp.server import SERVER_NAME, create_server
 
 def test_package_import_exposes_version() -> None:
     """The installed src-layout package imports with its release version."""
-    assert ros2_manipulator_mcp.__version__ == "0.1.0"
+    assert ros2_manipulator_mcp.__version__ == "0.2.0"
 
 
 def test_composition_root_constructs_server_without_ros() -> None:

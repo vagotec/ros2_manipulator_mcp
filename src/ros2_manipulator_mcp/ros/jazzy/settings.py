@@ -17,6 +17,8 @@ class JazzyMoveItSettings:
     motion_plan_service: str = "/plan_kinematic_path"
     get_planning_scene_service: str = "/get_planning_scene"
     apply_planning_scene_service: str = "/apply_planning_scene"
+    execute_trajectory_action: str = "/execute_trajectory"
+    trajectory_execution_event_topic: str = "/trajectory_execution_event"
     service_timeout_seconds: float = 5.0
     state_timeout_seconds: float = 2.0
     ik_timeout_seconds: float = 1.0
@@ -33,6 +35,8 @@ class JazzyMoveItSettings:
             "motion_plan_service",
             "get_planning_scene_service",
             "apply_planning_scene_service",
+            "execute_trajectory_action",
+            "trajectory_execution_event_topic",
         ):
             if not getattr(self, field_name).strip():
                 raise ValueError(f"{field_name} must not be empty")

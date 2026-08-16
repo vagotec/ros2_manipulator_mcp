@@ -1,6 +1,7 @@
 """Typed configuration loading for the composition root."""
 
 from dataclasses import dataclass
+from math import isfinite
 import os
 from pathlib import Path
 import tomllib
@@ -23,10 +24,46 @@ class RuntimeSettings:
 
 
 @dataclass(frozen=True)
-class SafetySettings:
-    """Top-level safety policy switches."""
+class ExecutionSettings:
+    """Backend-neutral execution policy and bounded timeout values."""
 
-    physical_execution_enabled: bool
+    enabled: bool
+    start_state_tolerance_rad: float
+    state_freshness_sec: float
+    require_exact_scene_revision: bool
+    action_server_discovery_timeout_sec: float
+    goal_acceptance_timeout_sec: float
+    cancel_timeout_sec: float
+    shutdown_timeout_sec: float
+    timeout_multiplier: float
+    timeout_margin_sec: float
+    timeout_max_sec: float
+    stabilization_timeout_sec: float
+    stabilization_quiet_window_sec: float
+    stabilization_position_delta_rad: float
+    stabilization_velocity_rad_per_sec: float
+
+    def __post_init__(self) -> None:
+        positive = {
+            "start_state_tolerance_rad": self.start_state_tolerance_rad,
+            "state_freshness_sec": self.state_freshness_sec,
+            "action_server_discovery_timeout_sec": (
+                self.action_server_discovery_timeout_sec
+            ),
+            "goal_acceptance_timeout_sec": self.goal_acceptance_timeout_sec,
+            "cancel_timeout_sec": self.cancel_timeout_sec,
+            "shutdown_timeout_sec": self.shutdown_timeout_sec,
+            "timeout_multiplier": self.timeout_multiplier,
+            "timeout_max_sec": self.timeout_max_sec,
+            "stabilization_timeout_sec": self.stabilization_timeout_sec,
+            "stabilization_quiet_window_sec": self.stabilization_quiet_window_sec,
+            "stabilization_position_delta_rad": self.stabilization_position_delta_rad,
+            "stabilization_velocity_rad_per_sec": self.stabilization_velocity_rad_per_sec,
+        }
+        if any(not isfinite(value) or value <= 0 for value in positive.values()):
+            raise ValueError("execution numeric limits must be finite and positive")
+        if not isfinite(self.timeout_margin_sec) or self.timeout_margin_sec < 0:
+            raise ValueError("execution timeout margin must be finite and non-negative")
 
 
 @dataclass(frozen=True)
@@ -34,7 +71,7 @@ class Settings:
     """Application configuration."""
 
     runtime: RuntimeSettings
-    safety: SafetySettings
+    execution: ExecutionSettings
     policy: SafetyPolicy
 
 
@@ -59,7 +96,7 @@ def load_settings(config_path: Path | None = None) -> Settings:
         data = tomllib.load(config_file)
 
     runtime = data["runtime"]
-    safety = data["safety"]
+    execution = data["execution"]
     policy = data["policy"]
     timeout = float(runtime["service_timeout_seconds"])
 
@@ -72,9 +109,35 @@ def load_settings(config_path: Path | None = None) -> Settings:
             reference_manipulator=str(runtime["reference_manipulator"]),
             service_timeout_seconds=timeout,
         ),
-        safety=SafetySettings(
-            physical_execution_enabled=bool(
-                safety["physical_execution_enabled"]
+        execution=ExecutionSettings(
+            enabled=bool(execution["enabled"]),
+            start_state_tolerance_rad=float(
+                execution["start_state_tolerance_rad"]
+            ),
+            state_freshness_sec=float(execution["state_freshness_sec"]),
+            require_exact_scene_revision=bool(
+                execution["require_exact_scene_revision"]
+            ),
+            action_server_discovery_timeout_sec=float(
+                execution["action_server_discovery_timeout_sec"]
+            ),
+            goal_acceptance_timeout_sec=float(
+                execution["goal_acceptance_timeout_sec"]
+            ),
+            cancel_timeout_sec=float(execution["cancel_timeout_sec"]),
+            shutdown_timeout_sec=float(execution["shutdown_timeout_sec"]),
+            timeout_multiplier=float(execution["execution_timeout_multiplier"]),
+            timeout_margin_sec=float(execution["execution_timeout_margin_sec"]),
+            timeout_max_sec=float(execution["execution_timeout_max_sec"]),
+            stabilization_timeout_sec=float(execution["stabilization_timeout_sec"]),
+            stabilization_quiet_window_sec=float(
+                execution["stabilization_quiet_window_sec"]
+            ),
+            stabilization_position_delta_rad=float(
+                execution["stabilization_position_delta_rad"]
+            ),
+            stabilization_velocity_rad_per_sec=float(
+                execution["stabilization_velocity_rad_per_sec"]
             ),
         ),
         policy=SafetyPolicy(

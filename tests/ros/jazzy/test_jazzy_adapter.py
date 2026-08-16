@@ -5,6 +5,8 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
+from action_msgs.msg import GoalStatus
+from moveit_msgs.action import ExecuteTrajectory
 from moveit_msgs.msg import MoveItErrorCodes, RobotTrajectory
 from moveit_msgs.srv import GetMotionPlan, GetPositionIK
 from sensor_msgs.msg import JointState as RosJointState
@@ -24,6 +26,8 @@ from ros2_manipulator_mcp.domain import (
     PrimitiveType,
     Quaternion,
     RobotState,
+    Trajectory,
+    TrajectoryPoint,
     Vector3,
 )
 from ros2_manipulator_mcp.ros.adapter import ManipulatorAdapter
@@ -56,6 +60,9 @@ class FakeRuntime:
         self.calls: list[tuple[type, str, Any, float]] = []
         self.close_count = 0
         self.error: Exception | None = None
+        self.goal_handle = type("GoalHandle", (), {"accepted": True})()
+        self.action_result: Any = None
+        self.published: list[tuple[type, str, Any]] = []
 
     async def call_service(
         self,
@@ -87,6 +94,21 @@ class FakeRuntime:
     def close(self) -> None:
         self.close_count += 1
 
+    def now_seconds(self) -> float:
+        return 0.0
+
+    async def send_action_goal(self, action_type, action_name, goal, *timeouts):
+        self.calls.append((action_type, action_name, goal, timeouts))
+        return self.goal_handle
+
+    async def wait_action_result(self, goal_handle, timeout_seconds):
+        if self.error is not None:
+            raise self.error
+        return self.action_result
+
+    def publish_message(self, message_type, topic_name, message):
+        self.published.append((message_type, topic_name, message))
+
 
 def test_adapter_satisfies_composite_port_and_closes_once() -> None:
     """One replaceable adapter implements all ports and owns cleanup."""
@@ -97,6 +119,53 @@ def test_adapter_satisfies_composite_port_and_closes_once() -> None:
     adapter.close()
     adapter.close()
 
+    assert runtime.close_count == 1
+
+
+def test_execute_trajectory_maps_verified_success_and_publishes_stop_once() -> None:
+    """Execution uses the fixed MoveIt action and private 2.12.4 stop event."""
+    runtime = FakeRuntime()
+    result = ExecuteTrajectory.Result()
+    result.error_code.val = MoveItErrorCodes.PREEMPTED
+    runtime.action_result = type(
+        "Wrapped", (), {"status": GoalStatus.STATUS_ABORTED, "result": result}
+    )()
+    adapter = JazzyManipulatorAdapter(_descriptor(), runtime=runtime)
+    trajectory = Trajectory(("joint1",), (TrajectoryPoint((0.0,), 0.0),))
+
+    accepted = asyncio.run(adapter.submit_execution(
+        "execution", trajectory, server_timeout_seconds=1.0,
+        acceptance_timeout_seconds=1.0,
+    ))
+    first = asyncio.run(adapter.request_execution_stop("execution"))
+    second = asyncio.run(adapter.request_execution_stop("execution"))
+    terminal = asyncio.run(adapter.wait_execution_result("execution", timeout_seconds=1.0))
+
+    assert accepted.value is True
+    assert runtime.calls[0][0] is ExecuteTrajectory
+    assert runtime.calls[0][1] == "/execute_trajectory"
+    assert first.value is True and second.value is False
+    assert runtime.published[0][1] == "/trajectory_execution_event"
+    assert runtime.published[0][2].data == "stop"
+    assert terminal.value.outcome.value == "preempted"
+
+
+def test_close_with_active_execution_attempts_one_stop_before_cleanup() -> None:
+    """Shutdown is bounded and never duplicates the private stop event."""
+    runtime = FakeRuntime()
+    adapter = JazzyManipulatorAdapter(_descriptor(), runtime=runtime)
+    trajectory = Trajectory(("joint1",), (TrajectoryPoint((0.0,), 0.0),))
+    asyncio.run(adapter.submit_execution(
+        "execution", trajectory, server_timeout_seconds=1.0,
+        acceptance_timeout_seconds=1.0,
+    ))
+
+    adapter.close()
+    adapter.close()
+
+    assert len(runtime.published) == 1
+    assert runtime.published[0][1] == "/trajectory_execution_event"
+    assert runtime.published[0][2].data == "stop"
     assert runtime.close_count == 1
 
 

@@ -5,6 +5,12 @@ from ros2_manipulator_mcp.domain.description import (
     PlanningGroup,
 )
 from ros2_manipulator_mcp.domain.geometry import Pose, Quaternion, Vector3
+from ros2_manipulator_mcp.domain.execution import (
+    ExecutionRecord,
+    ExecutionState,
+    ExecutionValidationFinding,
+    ExecutionValidationResult,
+)
 from ros2_manipulator_mcp.domain.goals import JointGoal, PoseGoal
 from ros2_manipulator_mcp.domain.planning import (
     CartesianPathRequest,
@@ -34,6 +40,10 @@ __all__ = [
     "DomainErrorCode",
     "DomainFailure",
     "DomainResult",
+    "ExecutionRecord",
+    "ExecutionState",
+    "ExecutionValidationFinding",
+    "ExecutionValidationResult",
     "JointGoal",
     "JointState",
     "ManipulatorDescriptor",

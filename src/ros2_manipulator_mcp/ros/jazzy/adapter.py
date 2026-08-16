@@ -1,8 +1,11 @@
 """ROS 2 Jazzy adapter using verified MoveIt 2 services and messages."""
 
 from hashlib import sha256
+from threading import RLock
 from typing import Any
 
+from action_msgs.msg import GoalStatus
+from moveit_msgs.action import ExecuteTrajectory
 from moveit_msgs.msg import (
     CollisionObject as RosCollisionObject,
     MoveItErrorCodes,
@@ -20,6 +23,12 @@ from moveit_msgs.srv import (
 )
 from rclpy.serialization import serialize_message
 from sensor_msgs.msg import JointState as RosJointState
+from std_msgs.msg import String
+
+from ros2_manipulator_mcp.application.ports import (
+    BackendExecutionOutcome,
+    BackendExecutionResult,
+)
 
 from ros2_manipulator_mcp.domain import (
     CartesianPathRequest,
@@ -48,6 +57,7 @@ from ros2_manipulator_mcp.ros.jazzy.conversions import (
     to_pose_message,
     to_pose_stamped_message,
     to_robot_state_message,
+    to_trajectory_message,
 )
 from ros2_manipulator_mcp.ros.jazzy.runtime import (
     JazzyRosRuntime,
@@ -71,6 +81,114 @@ class JazzyManipulatorAdapter:
         self._settings = settings or JazzyMoveItSettings()
         self._runtime = runtime or JazzyRosRuntime(self._settings.node_name)
         self._closed = False
+        self._execution_lock = RLock()
+        self._active_execution_id: str | None = None
+        self._active_goal_handle: Any | None = None
+        self._stop_requested: set[str] = set()
+        self._execution_quarantined = False
+
+    async def submit_execution(
+        self,
+        execution_id: str,
+        trajectory: Trajectory,
+        *,
+        server_timeout_seconds: float,
+        acceptance_timeout_seconds: float,
+    ) -> DomainResult[bool]:
+        """Submit one trajectory to the verified ExecuteTrajectory action."""
+        with self._execution_lock:
+            if self._execution_quarantined:
+                return DomainResult(error=DomainFailure(
+                    DomainErrorCode.BACKEND_QUARANTINED,
+                    "The execution backend is quarantined until adapter restart.",
+                ))
+            if self._active_execution_id is not None:
+                return DomainResult(error=DomainFailure(
+                    DomainErrorCode.EXECUTION_CONFLICT,
+                    "The execution backend already owns an active execution.",
+                ))
+        goal = ExecuteTrajectory.Goal()
+        goal.trajectory = to_trajectory_message(trajectory)
+        try:
+            handle = await self._runtime.send_action_goal(
+                ExecuteTrajectory,
+                self._settings.execute_trajectory_action,
+                goal,
+                server_timeout_seconds,
+                acceptance_timeout_seconds,
+            )
+        except Exception as error:
+            return self._runtime_failure(error)
+        if handle is None or not handle.accepted:
+            return DomainResult(value=False)
+        with self._execution_lock:
+            self._active_execution_id = execution_id
+            self._active_goal_handle = handle
+        return DomainResult(value=True)
+
+    async def wait_execution_result(
+        self,
+        execution_id: str,
+        *,
+        timeout_seconds: float,
+    ) -> DomainResult[BackendExecutionResult]:
+        """Wait boundedly and map exact Jazzy MoveIt terminal semantics."""
+        with self._execution_lock:
+            if execution_id != self._active_execution_id:
+                return DomainResult(error=DomainFailure(
+                    DomainErrorCode.NOT_FOUND,
+                    "The execution is not active in this backend.",
+                ))
+            handle = self._active_goal_handle
+        try:
+            wrapped = await self._runtime.wait_action_result(handle, timeout_seconds)
+        except Exception as error:
+            return self._runtime_failure(error)
+        status = int(wrapped.status)
+        code = int(wrapped.result.error_code.val)
+        if status == GoalStatus.STATUS_SUCCEEDED and code == MoveItErrorCodes.SUCCESS:
+            outcome = BackendExecutionOutcome.SUCCEEDED
+        elif status == GoalStatus.STATUS_ABORTED and code == MoveItErrorCodes.PREEMPTED:
+            outcome = BackendExecutionOutcome.PREEMPTED
+        else:
+            outcome = BackendExecutionOutcome.FAILED
+        detail = wrapped.result.error_code.message.strip()
+        with self._execution_lock:
+            self._active_execution_id = None
+            self._active_goal_handle = None
+            self._stop_requested.discard(execution_id)
+        return DomainResult(value=BackendExecutionResult(outcome, detail))
+
+    async def request_execution_stop(
+        self,
+        execution_id: str,
+    ) -> DomainResult[bool]:
+        """Publish the MoveIt 2.12.4 global stop event exactly once."""
+        with self._execution_lock:
+            if execution_id != self._active_execution_id:
+                return DomainResult(error=DomainFailure(
+                    DomainErrorCode.NOT_FOUND,
+                    "The execution is not active in this backend.",
+                ))
+            if execution_id in self._stop_requested:
+                return DomainResult(value=False)
+            self._stop_requested.add(execution_id)
+        try:
+            self._runtime.publish_message(
+                String,
+                self._settings.trajectory_execution_event_topic,
+                String(data="stop"),
+            )
+        except Exception as error:
+            self.quarantine_execution_backend(execution_id)
+            return self._runtime_failure(error)
+        return DomainResult(value=True)
+
+    def quarantine_execution_backend(self, execution_id: str) -> None:
+        """Prevent later execution after an ambiguous backend outcome."""
+        del execution_id
+        with self._execution_lock:
+            self._execution_quarantined = True
 
     async def describe_manipulator(
         self,
@@ -88,10 +206,16 @@ class JazzyManipulatorAdapter:
             )
             stamp = message.header.stamp
             timestamp = float(stamp.sec) + float(stamp.nanosec) / 1_000_000_000
+            age = self._runtime.now_seconds() - timestamp
+            if age < 0:
+                return self._backend_error(
+                    "Joint-state timestamp is ahead of the adapter clock."
+                )
             return DomainResult(
                 value=RobotState(
                     from_joint_state_message(message),
                     timestamp_seconds=timestamp,
+                    sample_age_seconds=age,
                 )
             )
         except Exception as error:
@@ -454,10 +578,27 @@ class JazzyManipulatorAdapter:
         )
 
     def close(self) -> None:
-        """Release the runtime exactly once."""
-        if self._closed:
-            return
-        self._closed = True
+        """Attempt one stop for active execution, then release runtime once."""
+        with self._execution_lock:
+            if self._closed:
+                return
+            self._closed = True
+            execution_id = self._active_execution_id
+            should_stop = (
+                execution_id is not None
+                and execution_id not in self._stop_requested
+            )
+            if should_stop:
+                self._stop_requested.add(execution_id)
+        if should_stop:
+            try:
+                self._runtime.publish_message(
+                    String,
+                    self._settings.trajectory_execution_event_topic,
+                    String(data="stop"),
+                )
+            except Exception:
+                pass
         self._runtime.close()
 
     def _ensure_open(self) -> None:

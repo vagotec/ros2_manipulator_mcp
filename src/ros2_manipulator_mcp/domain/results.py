@@ -20,6 +20,14 @@ class DomainErrorCode(StrEnum):
     PLANNING_FAILED = "planning_failed"
     STALE_STATE = "stale_state"
     BACKEND_ERROR = "backend_error"
+    EXECUTION_DISABLED = "execution_disabled"
+    EXECUTION_CONFLICT = "execution_conflict"
+    PLAN_RESERVED = "plan_reserved"
+    PLAN_CONSUMED = "plan_consumed"
+    INVALID_EXECUTION_TRANSITION = "invalid_execution_transition"
+    EXECUTION_VALIDATION_FAILED = "execution_validation_failed"
+    EXECUTION_FAILED = "execution_failed"
+    BACKEND_QUARANTINED = "backend_quarantined"
 
 
 @dataclass(frozen=True)

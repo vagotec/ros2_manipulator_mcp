@@ -21,6 +21,7 @@ def register_resources(
     policy: SafetyPolicy,
     configured_profile: str,
     service_timeout_seconds: float,
+    execution_enabled: bool,
 ) -> None:
     """Register Phase 8 resources without adding backend behavior."""
 
@@ -45,7 +46,8 @@ def register_resources(
             **_descriptor_data(result.value),
             "configured_profile": configured_profile,
             "capabilities": _capabilities(),
-            "physical_execution_available": False,
+            "physical_execution_available": execution_enabled,
+            "execution_enabled": execution_enabled,
         })
 
     @resource(
@@ -168,7 +170,8 @@ def register_resources(
     def safety() -> dict[str, Any]:
         return _ok({
             "policy": _policy_data(policy),
-            "physical_execution_available": False,
+            "physical_execution_available": execution_enabled,
+            "execution_enabled": execution_enabled,
             "certified_physical_safety": False,
             "non_guarantees": [
                 "This MCP policy layer is NOT certified physical safety.",
@@ -177,6 +180,35 @@ def register_resources(
                 "Collision avoidance is not guaranteed.",
                 "No human detection or real-time torque/speed enforcement is provided.",
             ],
+        })
+
+    @resource(
+        "manipulator://executions/{execution_id}",
+        "execution-status",
+        "One application-owned execution's bounded read-only status.",
+    )
+    def execution_by_id(execution_id: str) -> dict[str, Any]:
+        result = service_provider().get_execution_status(execution_id)
+        if result.error is not None:
+            return _error(result.error.code.value, result.error.message)
+        execution = result.value
+        return _ok({
+            "execution": {
+                "execution_id": execution.execution_id,
+                "plan_id": execution.plan_id,
+                "state": execution.state.value,
+                "cancellation_requested": execution.cancellation_requested,
+                "accepted": execution.backend_goal_accepted,
+                "backend_stop_requested": execution.backend_stop_requested,
+                "backend_stop_acknowledged": execution.backend_stop_acknowledged,
+                "execution_terminal": execution.execution_terminal,
+                "state_stabilized": execution.state_stabilized,
+                "physical_stop_confirmed": execution.physical_stop_confirmed,
+                "failure": None if execution.failure is None else {
+                    "code": execution.failure.code.value,
+                    "message": execution.failure.message,
+                },
+            }
         })
 
     @resource(

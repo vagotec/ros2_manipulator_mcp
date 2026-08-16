@@ -271,6 +271,35 @@ def register_tools(server: MCPServer, service_provider: ServiceProvider) -> None
     async def remove_collision_object(object_id: str) -> StructuredResult:
         return _result(await service_provider().remove_collision_object(object_id), _scene_data)
 
+    @tool(
+        "execute_motion_plan",
+        "Start execution of one application-owned validated plan ID.",
+        MUTATION,
+    )
+    async def execute_motion_plan(plan_id: str) -> StructuredResult:
+        result = await service_provider().start_motion_plan_execution(plan_id)
+        return _result(result, _execution_data)
+
+    @tool(
+        "get_execution_status",
+        "Read bounded application-owned execution status.",
+        READ_ONLY,
+    )
+    async def get_execution_status(execution_id: str) -> StructuredResult:
+        return _result(
+            service_provider().get_execution_status(execution_id),
+            _execution_data,
+        )
+
+    @tool(
+        "cancel_execution",
+        "Request bounded cancellation of the active execution.",
+        MUTATION,
+    )
+    async def cancel_execution(execution_id: str) -> StructuredResult:
+        result = await service_provider().cancel_execution(execution_id)
+        return _result(result, _execution_data)
+
 
 def _pose(value: PoseInput) -> Pose:
     return Pose(
@@ -281,6 +310,31 @@ def _pose(value: PoseInput) -> Pose:
             value.orientation.z, value.orientation.w,
         ),
     )
+
+
+def _execution_data(execution: Any) -> dict[str, Any]:
+    failure = (
+        None
+        if execution.failure is None
+        else {
+            "code": execution.failure.code.value,
+            "message": execution.failure.message,
+        }
+    )
+    return {
+        "execution_id": execution.execution_id,
+        "plan_id": execution.plan_id,
+        "state": execution.state.value,
+        "accepted": execution.backend_goal_accepted,
+        "started": execution.backend_goal_accepted,
+        "cancellation_requested": execution.cancellation_requested,
+        "backend_stop_requested": execution.backend_stop_requested,
+        "backend_stop_acknowledged": execution.backend_stop_acknowledged,
+        "execution_terminal": execution.execution_terminal,
+        "state_stabilized": execution.state_stabilized,
+        "physical_stop_confirmed": execution.physical_stop_confirmed,
+        "failure": failure,
+    }
 
 
 def _robot_state(value: JointStateInput) -> RobotState:

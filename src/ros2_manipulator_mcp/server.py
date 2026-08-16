@@ -30,13 +30,14 @@ def create_server(service: ManipulatorService | None = None) -> MCPServer:
         policy=settings.policy,
         configured_profile=settings.runtime.reference_manipulator,
         service_timeout_seconds=settings.runtime.service_timeout_seconds,
+        execution_enabled=settings.execution.enabled,
     )
     register_prompts(server)
     return server
 
 
 def main() -> None:
-    """Run the MCP server over the v0.1.0 stdio transport."""
+    """Run the MCP server over the configured stdio transport."""
     service, adapter = _build_default_service()
     try:
         create_server(service).run(transport="stdio")
@@ -64,9 +65,6 @@ def _build_default_service():
         raise ValueError("Unsupported manipulator backend configuration.")
     if settings.runtime.reference_manipulator != "open_manipulator_x":
         raise ValueError("Unsupported reference manipulator configuration.")
-    if settings.safety.physical_execution_enabled:
-        raise ValueError("Physical execution is not available in v0.1.0.")
-
     adapter = JazzyManipulatorAdapter(
         OPEN_MANIPULATOR_X_DESCRIPTOR,
         settings=JazzyMoveItSettings(
@@ -79,7 +77,32 @@ def _build_default_service():
         kinematics=adapter,
         planning=adapter,
         scene=adapter,
+        execution=adapter,
         plans=PlanRegistry(),
+        execution_enabled=settings.execution.enabled,
+        start_state_tolerance_rad=settings.execution.start_state_tolerance_rad,
+        state_freshness_seconds=settings.execution.state_freshness_sec,
+        require_exact_scene_revision=(
+            settings.execution.require_exact_scene_revision
+        ),
+        action_server_discovery_timeout_seconds=(
+            settings.execution.action_server_discovery_timeout_sec
+        ),
+        goal_acceptance_timeout_seconds=settings.execution.goal_acceptance_timeout_sec,
+        execution_timeout_multiplier=settings.execution.timeout_multiplier,
+        execution_timeout_margin_seconds=settings.execution.timeout_margin_sec,
+        execution_timeout_max_seconds=settings.execution.timeout_max_sec,
+        cancellation_timeout_seconds=settings.execution.cancel_timeout_sec,
+        stabilization_timeout_seconds=settings.execution.stabilization_timeout_sec,
+        stabilization_quiet_window_seconds=(
+            settings.execution.stabilization_quiet_window_sec
+        ),
+        stabilization_position_delta_rad=(
+            settings.execution.stabilization_position_delta_rad
+        ),
+        stabilization_velocity_rad_per_sec=(
+            settings.execution.stabilization_velocity_rad_per_sec
+        ),
         safety=SafetyEvaluator(settings.policy),
     )
     return service, adapter

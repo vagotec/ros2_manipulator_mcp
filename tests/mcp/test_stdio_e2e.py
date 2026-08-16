@@ -50,14 +50,14 @@ def test_stdio_discovery_and_surface_counts() -> None:
 
     assert "2026-07-28" in discovery.supported_versions
     assert discovery.meta["io.modelcontextprotocol/serverInfo"] == {
-        "name": "ros2-manipulator-mcp", "version": "0.1.0"
+        "name": "ros2-manipulator-mcp", "version": "0.2.0"
     }
     assert discovery.capabilities.tools is not None
     assert discovery.capabilities.resources is not None
     assert discovery.capabilities.prompts is not None
     assert "Physical execution" in discovery.instructions
     assert (len(tools.tools), len(resources.resources), len(templates.resource_templates), len(prompts.prompts)) == (
-        19, 7, 3, 6
+        22, 7, 4, 7
     )
 
 
