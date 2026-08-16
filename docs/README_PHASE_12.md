@@ -1,21 +1,25 @@
-# Phase 12 - Real OpenMANIPULATOR-X Hardware Checkpoint
+# Phase 12 - Real OpenMANIPULATOR-X Hardware Verification
 
 ## Status
 
 - Pre-hardware audit: **COMPLETE**
-- Real hardware verification: **DEFERRED**
-- Reason: OpenMANIPULATOR-X hardware currently not connected
-- Physical motion commands issued: **NONE**
-- Torque changes performed: **NONE**
-- Hardware processes started: **NONE**
+- Hardware detection and permissions: **COMPLETE**
+- Real read-only state/kinematics verification: **COMPLETE**
+- Real planning-only verification: **COMPLETE**
+- Physical trajectory execution verification: **NOT PERFORMED**
+- Physical trajectory commands issued: **NONE**
 
-Phase 12 stopped at the mandatory pre-hardware checkpoint. Real hardware
-state, MCP kinematics, planning-only behavior, planning-scene behavior, and
-hardware opt-in tests have not been run and are not marked as passed.
+Post-release note (2026-08-16): the real-hardware read/kinematics and
+planning-only checkpoints documented below were completed after the v0.1.0
+release. The release-time Phase 13 classification remains a historical record.
 
-## Verified local baseline
+Phase 12 verified the real OpenMANIPULATOR-X through the MCP planning boundary.
+It did not test or authorize physical trajectory execution. Visible physical
+response during torque engagement was not independently observable through the
+terminal; sampled velocities were zero and measured positions were unchanged
+during planning.
 
-The read-only audit verified:
+## Authoritative baseline
 
 | Component | Installed version |
 |---|---|
@@ -25,83 +29,34 @@ The read-only audit verified:
 | `rclpy` | 7.1.11 |
 | MoveIt | 2.12.4 |
 | `moveit_msgs` | 2.6.0 |
-| OpenMANIPULATOR bringup | 4.1.3 |
-| OpenMANIPULATOR description | 4.1.3 |
-| OpenMANIPULATOR MoveIt config | 4.1.3 |
+| MCP Python SDK / `mcp-types` | 2.0.0 / 2.0.0 |
+| OpenMANIPULATOR packages | 4.1.3 |
 | Dynamixel hardware interface | 1.5.2 |
 | Dynamixel SDK | 4.0.3 |
 
-No `/dev/ttyUSB*`, `/dev/ttyACM*`, or `/dev/serial/by-id/*` device was
-detected. Host USB enumeration showed no identifiable U2D2 or OpenCR serial
-adapter. User `sarvg` is already a member of `dialout`; no permissions, udev
-rules, firmware, baud rates, or hardware settings were changed.
+The installed official launch, ros2_control Xacro, controller configuration,
+MoveIt configuration, URDF joint limits, and generated ROS interfaces were the
+runtime authority.
 
-## Verified hardware configuration
+## Detected hardware
 
-The installed official OpenMANIPULATOR-X ros2_control description selects
-`dynamixel_hardware_interface/DynamixelHardware` when simulation and mock
-hardware are disabled. It specifies:
-
-- default serial device `/dev/ttyUSB0`;
-- baud rate `1,000,000`;
-- five Dynamixels with IDs `11` through `15`;
-- position command interfaces;
-- position, velocity, and effort state interfaces;
-- arm joints `joint1` through `joint4`;
-- gripper joint `gripper_left_joint`;
-- `disable_torque_at_init=true`.
-
-The installed controller configuration defines an arm
-`JointTrajectoryController`, gripper `GripperActionController`, and
-`JointStateBroadcaster`. The official MoveIt configuration maps the arm to
-`FollowJointTrajectory` and the gripper to `GripperCommand`.
-
-## Startup safety finding
-
-The official bringup defaults `init_position` to `true`. Its installed
-`joint_trajectory_executor` sends a three-second `FollowJointTrajectory` goal
-for arm target `[0.0, -1.0, 1.0, 0.0]`. A future hardware verification must
-therefore set:
+The connected FTDI FT232H interface (`0403:6014`, serial `FT45B86O`) appeared
+as `/dev/ttyUSB0`, with stable link:
 
 ```text
-init_position:=false
+/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FT45B86O-if00-port0
 ```
 
-This prevents the explicit initialization trajectory, but it does **not**
-make startup guaranteed motion-free. The verified hardware path still
-activates `DynamixelHardware`, enables Dynamixel torque during activation, and
-activates position controllers. Torque engagement and controller activation
-can produce holding response or physical movement under load.
+The link resolved to `/dev/ttyUSB0`. User `sarvg` was in `dialout`, and both
+paths were readable and writable. The official OpenMANIPULATOR-X configuration
+matched the detected/default port and specified 1,000,000 baud and Dynamixel
+IDs 11 through 15.
 
-Consequently, the current real-hardware launch path must not be started merely
-for state inspection. It requires a connected and positively identified
-robot, a supported safe pose, a cleared workspace, accessible power cutoff,
-and fresh explicit approval acknowledging torque enablement and possible
-physical response.
+## Audited startup and lifecycle
 
-## Deferred future checkpoint
-
-If Phase 12 is resumed later, the prerequisites are:
-
-1. Connect and power the intended OpenMANIPULATOR-X interface.
-2. Positively identify its stable serial device; do not assume a device name.
-3. Reconcile that device with the official 1 Mbps configuration without
-   changing hardware settings automatically.
-4. Reconfirm the installed launch and Dynamixel lifecycle behavior.
-5. Present the exact command, torque behavior, controller activation, possible
-   movement, and physical precautions to the user.
-6. Obtain explicit approval before starting any physical runtime.
-7. Keep `init_position:=false` and never call `FollowJointTrajectory`,
-   `ExecuteTrajectory`, gripper commands, direct joint commands, Dynamixel
-   register writes, or controller-management operations.
-
-The previously audited candidate command, subject to device re-verification
-and explicit approval, is:
+The approved hardware runtime used ROS domain 67 and exactly:
 
 ```bash
-export ROS_DOMAIN_ID=67
-export ROS_LOG_DIR=/tmp/ros2_manipulator_mcp_phase12_logs
-
 ros2 launch open_manipulator_bringup open_manipulator_x.launch.py \
   use_mock_hardware:=false \
   init_position:=false \
@@ -109,40 +64,130 @@ ros2 launch open_manipulator_bringup open_manipulator_x.launch.py \
   port_name:=/dev/ttyUSB0
 ```
 
-`/dev/ttyUSB0` is only the installed default, not an observed device. It must
-be replaced by the positively identified device when hardware is connected.
+`init_position:=false` prevented the explicit initialization trajectory. It
+did not prevent the hardware plugin from configuring devices, enabling torque,
+or activating position controllers.
+
+The port opened at 1,000,000 baud. IDs 11-15 all responded as XM430-W350
+(model 1020). The driver synchronized measured positions into command state
+before enabling torque, then activated the arm controller, gripper controller,
+and joint-state broadcaster. Initial FastSyncRead failed ten times with error
+`-3001`; the driver fell back to normal SyncRead and remained operational.
+
+The vendor hardware initialization emitted `InitItem` operations for operating
+modes, gains, profiles, drive modes, return delay, and gripper goal current.
+No separate project/user Dynamixel-register command was issued, but the
+official launch itself performs these writes. This behavior must remain part
+of future startup risk review.
+
+Shutdown deactivated controllers and reported torque OFF for IDs 11-15. The
+serial device had no holder and no related ROS, MoveIt, or MCP process remained.
+
+## Real state and kinematics checkpoint
+
+The real MCP stdio path negotiated MCP `2026-07-28` and verified descriptor,
+planning-group, current-state, current-pose, FK, IK-to-current-pose, and
+current-state-validity operations. The profile matched:
+
+- manipulator `open_manipulator_x`;
+- planning frame `world`;
+- arm group `arm` with `joint1` through `joint4`;
+- gripper group `gripper`;
+- arm tool frame `end_effector_link`.
+
+TF `world -> end_effector_link` was available. FK from the measured state and
+the independently read current end-effector pose agreed closely. IK to that
+same pose returned a solution close to the measured configuration, and the
+measured state was valid. No IK result was executed.
+
+## Planning-only checkpoint
+
+The planning checkpoint took a new measurement rather than reusing a previous
+state:
+
+| Joint | Position (rad) |
+|---|---:|
+| `joint1` | 0.0490873852 |
+| `joint2` | 0.0843689433 |
+| `joint3` | 0.3712233507 |
+| `joint4` | 1.1351457830 |
+| `gripper_left_joint` | 0.0091658438 |
+
+All measured velocities were zero and MoveIt reported the state valid.
+
+### Joint-goal plan
+
+The conservative target changed only `joint1` by `+0.02 rad`; joints 2-4
+remained at their freshly measured values. The target was comfortably inside
+the installed URDF limits. Velocity and acceleration scaling were both 0.1.
+
+- target: `[0.0690873852, 0.0843689433, 0.3712233507, 1.1351457830]`;
+- application plan ID: `meQLOGdNJrZKKzfifIcprxtn`;
+- trajectory: 5 points, 0.399175422 seconds, joints `joint1`-`joint4`;
+- retrieved plan ID and bounded metadata matched;
+- validation: valid, policy `default-v1`, no findings;
+- discard: successful.
+
+### Optional pose-goal plan
+
+After joint planning succeeded, the current measured pose was used as the
+baseline. Only world-frame X was decreased by 0.005 m; Y, Z, and orientation
+were unchanged.
+
+- baseline position: `(0.1553677278, 0.0070432048, 0.0044880202)`;
+- target position: `(0.1503677278, 0.0070432048, 0.0044880202)`;
+- application plan ID: `5wOTseoGiMk8jlBykuZdg4A9`;
+- trajectory: 8 points, 0.640165917 seconds, joints `joint1`-`joint4`;
+- retrieved plan ID and bounded metadata matched;
+- validation: valid, policy `default-v1`, no findings;
+- discard: successful.
+
+The optional Cartesian-path check was skipped because the successful joint and
+pose planner paths provided the required planning evidence without another
+target construction.
+
+The measured positions before and after both planning operations were exactly
+unchanged, and sampled velocities remained zero. Planning generated
+trajectories only in memory; neither trajectory was submitted for execution.
+
+## Execution-absence audit
+
+The public MCP surface contained no `execute_motion_plan` Tool. This checkpoint
+did not call `ExecuteTrajectory`, `FollowJointTrajectory`, plan-and-execute,
+controller command topics, gripper commands, Servo/Jogging, or controller
+switching. No direct physical target command was issued.
+
+## Warnings and limitations
+
+- FastSyncRead fell back to normal SyncRead after ten failures.
+- FIFO real-time scheduling was unavailable.
+- ros2_control reported URDF command-limit enforcement disabled.
+- The installed gripper controller type is deprecated upstream.
+- MoveIt reported absent collision geometry for `end_effector_link`, could not
+  identify the SRDF end-effector parent group, and had no 3D octomap sensor.
+- MoveIt used default workspace bounds and reported an unfilled planner ID.
+- MoveIt required SIGTERM after not exiting within five seconds of SIGINT.
+- ros2_control emitted PAL statistics context errors after successful hardware
+  deactivation and torque-off.
+- Physical movement cannot be assessed visually by this terminal-driven audit.
+  Zero sampled velocities and unchanged measured positions demonstrate that
+  planning did not command motion, but do not prove that torque engagement
+  caused no brief physical response.
 
 ## Authoritative source audit
 
-The checkpoint consulted:
+Sources consulted were the installed ROS 2 Jazzy interfaces; installed MoveIt
+2.12.4 and `moveit_msgs` 2.6.0 interfaces; installed ROBOTIS
+OpenMANIPULATOR-X 4.1.3 launch, URDF, SRDF, controller, kinematics, and joint
+limit files; installed Dynamixel hardware interface 1.5.2 behavior and logs;
+the MCP 2026-07-28 runtime surface using SDK 2.0.0; and the observed live ROS,
+MoveIt, MCP, USB, and serial state.
 
-- installed OpenMANIPULATOR 4.1.3 launch files, ros2_control Xacro,
-  controller YAML, initial-position YAML, SRDF, MoveIt controller mapping,
-  kinematics, and joint-limit configuration under `/opt/ros/jazzy`;
-- installed Dynamixel hardware interface 1.5.2 headers, package metadata, model
-  files, and exact binary lifecycle/log strings;
-- installed `joint_trajectory_executor` 4.1.3 source;
-- official ROBOTIS OpenMANIPULATOR 4.1.3 source repository;
-- official ROBOTIS Dynamixel hardware interface repository and Jazzy 1.5.2
-  generated API documentation;
-- read-only host serial-device, USB-device, user, and group inspection.
+No version discrepancy was found. The FastSyncRead incompatibility/failure and
+normal-SyncRead fallback are observed runtime behavior, not an assumed API.
 
-The installed launch/configuration matched the Phase 6 verified ROBOTIS 4.1.3
-baseline. No live hardware/runtime comparison was possible because the robot
-was not connected. Actual serial identity, detected Dynamixel models, live
-joint values, timestamps, TF, ROS graph endpoints, torque state, and hardware
-interoperability remain deliberately unverified.
+## Repository scope
 
-## Files, tests, and phase boundary
-
-Created:
-
-- `docs/README_PHASE_12.md`
-
-Updated:
-
-- `docs/README_PHASES.md`
-
-No production code, configuration, dependencies, or tests changed. No
-hardware tests were created or run, and no hardware result was fabricated.
-Phase 13 was not started.
+Only this Phase 12 document was updated. No production code, configuration,
+dependency, or test was changed. No hardware test suite was added. Physical
+execution remains unimplemented and unverified, and no v0.2.0 work was started.
