@@ -1,0 +1,38 @@
+[project]
+name = "ros2-manipulator-mcp"
+version = "0.1.0"
+description = "A backend-neutral MCP server for ROS 2 manipulator inspection and motion planning."
+readme = "README.md"
+license = "Apache-2.0"
+authors = [
+    { name = "Vagotec" },
+]
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=2,<3",
+    "numpy>=1.26,<3",
+    "pyyaml>=6,<7",
+]
+
+[project.scripts]
+ros2-manipulator-mcp = "ros2_manipulator_mcp.server:main"
+
+[build-system]
+requires = ["uv_build>=0.11.32,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8,<10",
+]
+
+[tool.pytest.ini_options]
+addopts = [
+    "--disable-plugin-autoload",
+]
+markers = [
+    "integration: requires the documented live ROS 2 / MoveIt graph",
+]
+testpaths = [
+    "tests",
+]

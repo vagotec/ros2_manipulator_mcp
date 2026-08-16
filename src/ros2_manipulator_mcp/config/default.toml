@@ -1,0 +1,28 @@
+[runtime]
+backend = "ros2_jazzy_moveit"
+reference_manipulator = "open_manipulator_x"
+service_timeout_seconds = 5.0
+
+[safety]
+physical_execution_enabled = false
+
+[policy]
+policy_id = "default-v1"
+allowed_planning_groups = []
+max_planning_time_seconds = 10.0
+max_planning_attempts = 5
+max_velocity_scaling_factor = 1.0
+max_acceleration_scaling_factor = 1.0
+max_joint_targets = 16
+max_cartesian_waypoints = 100
+min_cartesian_step = 0.0001
+max_cartesian_step = 0.1
+min_cartesian_completion_fraction = 0.95
+require_collision_avoidance = true
+allowed_object_id_prefixes = []
+max_collision_objects = 100
+max_primitive_dimension = 5.0
+allowed_primitive_types = ["box", "sphere", "cylinder", "cone"]
+allowed_scene_frames = []
+allow_object_replace = false
+require_scene_revision = true
