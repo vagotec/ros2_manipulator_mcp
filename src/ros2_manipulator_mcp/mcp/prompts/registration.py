@@ -26,8 +26,8 @@ def register_prompts(server: MCPServer) -> None:
             "manipulator://state/current, manipulator://groups, and "
             "manipulator://scene. Summarize identity, available planning groups, "
             "state timestamp availability, scene revision, and readiness. Do not "
-            "plan, mutate the scene, or execute motion. Physical execution is not "
-            f"available in v0.1.0.{detail}"
+            "plan, mutate the scene, or execute motion. Physical execution is "
+            f"disabled by default and is outside this inspection workflow.{detail}"
         )
 
     @server.prompt(
@@ -99,8 +99,8 @@ def register_prompts(server: MCPServer) -> None:
             "planning duration, scaling, bounded trajectory metadata, and current "
             "validation status. If needed, compare get_motion_plan and "
             "validate_motion_plan results. Do not execute or discard the plan. "
-            "Validation does not establish certified physical safety, and physical "
-            "execution is unavailable in v0.1.0."
+            "Validation does not establish certified physical safety. Physical "
+            "execution is disabled by default and requires separate authorization."
         )
 
     @server.prompt(
@@ -151,8 +151,9 @@ def register_prompts(server: MCPServer) -> None:
             "compute_cartesian_path when appropriate. 4) Review the returned plan_id "
             "through manipulator://plans/{plan_id} or get_motion_plan. 5) Call "
             "validate_motion_plan and explain its policy/scene context. 6) STOP. Do "
-            "not execute motion. Physical execution is not exposed in v0.1.0, and "
-            "policy validation is not certified physical safety."
+            "not execute motion in this workflow. Physical execution is disabled by "
+            "default, requires explicit opt-in and a separate execute_motion_plan "
+            "request, and policy validation is not certified physical safety."
         )
 
     @server.prompt(

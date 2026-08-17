@@ -1,13 +1,14 @@
 # ros2_manipulator_mcp
 
 `ros2_manipulator_mcp` is a backend-neutral Model Context Protocol server for
-inspecting ROS 2 manipulators, computing kinematics, planning motion, and
-managing primitive MoveIt planning-scene objects. It gives MCP clients a
-small typed manipulation API instead of arbitrary access to ROS services,
-topics, actions, nodes, or shell commands.
+inspecting ROS 2 manipulators, computing kinematics, planning and validating
+motion, managing primitive MoveIt planning-scene objects, and executing
+application-owned plans when execution has been explicitly enabled. It exposes
+a small typed manipulation API rather than arbitrary ROS, controller, or shell
+access.
 
-Version `0.1.0` is planning-only. It can generate and validate trajectories,
-but it cannot execute them or command physical robot motion.
+Version `0.2.0` adds bounded execution, status, and cancellation workflows. The
+shipped default remains fail-closed: `execution.enabled = false`.
 
 ## Architecture
 
@@ -18,100 +19,96 @@ MCP client
  -> backend-neutral domain and safety policy
  -> application ports
  -> ROS 2 Jazzy / MoveIt adapter
- -> rclpy and MoveIt 2
+ -> MoveIt 2 -> ros2_control -> manipulator hardware or mock hardware
 ```
 
-MoveIt is a replaceable backend, not the Manipulator domain. Domain,
-application, and safety modules contain no ROS, MoveIt, or MCP types. ROS
-messages and Jazzy-specific behavior remain behind the adapter boundary.
-
-Controller and hardware management belong to `ros2_control_mcp`, not this
-project.
+MoveIt is replaceable backend infrastructure, not the Manipulator domain.
+Domain, application, and safety modules contain no ROS, MoveIt, or MCP types.
+ROS messages and version-specific Jazzy behavior, including execution stopping,
+remain behind the adapter boundary. Controller and hardware lifecycle management
+belong to `ros2_control_mcp`, not this project's public MCP surface.
 
 ## Supported baseline
 
-The verified v0.1.0 baseline is:
+The verified v0.2.0 baseline is:
 
-- Ubuntu 24.04.4 LTS
-- Python 3.12.3 or compatible Python 3.12+
-- ROS 2 Jazzy
-- `rclpy` 7.1.11
+- Ubuntu 24.04.4 LTS and Python 3.12+
+- ROS 2 Jazzy, `rclpy` 7.1.11
 - MoveIt 2.12.4 and `moveit_msgs` 2.6.0
-- MCP Specification 2026-07-28
-- MCP Python SDK 2.0.0 and `mcp-types` 2.0.0
-- ROBOTIS OpenMANIPULATOR-X packages/configuration 4.1.3
+- `ros2_control` 4.45.2 and `joint_trajectory_controller` 4.40.1
+- ROBOTIS OpenMANIPULATOR-X packages 4.1.3 and
+  `dynamixel_hardware_interface` 1.5.2
+- MCP Specification 2026-07-28, MCP Python SDK 2.0.0, and `mcp-types` 2.0.0
 
 The MCP server exposes stdio only.
 
-## Capabilities
+## MCP surface
 
-The public v0.1.0 surface contains 19 Tools, 7 static Resources, 3 Resource
-Templates, and 6 Prompts.
+The public v0.2.0 surface contains 22 Tools, 7 static Resources, 4 Resource
+Templates, and 7 Prompts.
 
-Tools cover:
+The Tools cover discovery; state, pose, FK, IK, and validity; joint, pose, and
+Cartesian planning; application-owned plan inspection, validation, and discard;
+primitive planning-scene operations; and these three execution operations:
 
-- manipulator and planning-group discovery;
-- current robot state and end-effector pose;
-- forward kinematics, collision-aware inverse kinematics, and state validity;
-- joint-goal, pose-goal, and Cartesian-path planning;
-- opaque application-owned plan retrieval, validation, and discard;
-- planning-scene reads and primitive collision-object add/remove.
+- `execute_motion_plan(plan_id)`
+- `get_execution_status(execution_id)`
+- `cancel_execution(execution_id)`
 
-Resources provide bounded overview, group, current-state, planning-scene,
-safety-policy, health, collision-object, and stored-plan context. Prompts guide
-inspection, diagnosis, plan review, scene-change review, and workflows that
-stop before execution.
+Execution context is also available at
+`manipulator://executions/{execution_id}`, and
+`diagnose_execution_failure(execution_id)` provides a non-mutating diagnostic
+prompt. No raw trajectory, controller name, direct `FollowJointTrajectory`,
+arbitrary ROS service/action/topic, controller-management, or shell interface is
+exposed.
 
-See [Phase 13](docs/README_PHASE_13.md) for the exact API inventory.
+## Safety and execution contract
 
-## Safety model
+Planning, scene mutation, and execution pass through deterministic application
+policy and validation. Stored plans are process-local, immutable, and
+application-owned. Before execution the service reserves the plan, requires a
+fresh matching start state, enforces start tolerance and exact scene revision,
+and permits only one active execution per manipulator. Backend acceptance
+consumes the plan permanently; a failure before acceptance releases its
+reservation. Ambiguous cancellation or unsafe timeout outcomes quarantine the
+backend until process/adapter restart.
 
-Planning and planning-scene mutations pass through a deterministic
-`SafetyEvaluator`. Policy limits include planning groups, planning time and
-attempts, scaling factors, Cartesian path requirements, workspace bounds,
-collision-object types/dimensions/count, scene frames, replacement, and scene
-provenance.
+These controls are application safeguards, **not certified physical safety**.
+In particular:
 
-This is application policy enforcement, **not certified physical safety**.
-The project does not provide or claim:
+- physical execution is opt-in and disabled in the shipped configuration;
+- `cancel_execution` is not an emergency stop or machinery-safety function;
+- project `CANCELLED` requires causal MoveIt `PREEMPTED` and measured-state
+  stabilization evidence, but does not certify physical standstill;
+- the physical power cutoff remains the emergency mechanism;
+- the `/trajectory_execution_event` stop mechanism is specific to the audited
+  MoveIt 2.12.4 baseline and must be reverified for every newly supported
+  MoveIt version.
 
-- emergency-stop or machinery-safety capability;
-- real-time safe torque or speed enforcement;
-- guaranteed collision avoidance;
-- human detection;
-- physical execution authorization.
+## OpenMANIPULATOR-X reference and verification
 
-There is no execution Tool, `ExecuteTrajectory` wrapper,
-`FollowJointTrajectory` wrapper, controller-management Tool, direct joint
-command, arbitrary ROS operation, or shell Tool.
+The generic API is manipulator-independent. The shipped reference profile uses
+the official ROBOTIS 4.1.3 model: `world` planning frame, four-joint `arm`
+group, `gripper` group, and `end_effector_link`. Only the independently
+commandable `gripper_left_joint` is exposed in the gripper group;
+`gripper_right_joint` remains its URDF mimic joint.
 
-## OpenMANIPULATOR-X reference
+The complete MCP-to-MoveIt path is verified on official mock hardware. Phase 20
+also verified real startup, Dynamixel IDs 11-15, controller and torque lifecycle,
+real execution and separately operator-visible movement for joints 1-4 and ID
+15, orderly Torque OFF, and serial-device release. See
+[Phase 20](docs/README_PHASE_20.md) for the evidence matrix.
 
-The generic API is manipulator-independent. The v0.1.0 composition root ships
-one explicit reference profile verified against ROBOTIS 4.1.3:
-
-- model: `open_manipulator_x`
-- planning frame: `world`
-- arm group: `arm`
-- active arm joints: `joint1`, `joint2`, `joint3`, `joint4`
-- gripper group: `gripper`
-- tool frame: `end_effector_link`
-- KDL position-only IK
-- OMPL default planning pipeline
-
-The full MCP-to-MoveIt path is verified with the official mock-hardware
-runtime. Physical OpenMANIPULATOR-X verification is deferred because hardware
-was not connected.
-
-For future physical verification, `init_position:=false` prevents the vendor
-launch's explicit initialization trajectory. It does not make startup
-motion-free: real bringup still enables Dynamixel torque and activates
-position controllers. See [Phase 12](docs/README_PHASE_12.md) before any
-physical startup.
+Accepted hardware limitations are: real-hardware cancellation was deliberately
+not physically release-verified; the tested ID 15 mechanism has a mechanical or
+encoder-reference mismatch relative to the official model; one historical ID
+12 shutdown has an unknown initiating cause; and FastSyncRead can return `-3001`
+before the official driver successfully falls back to normal SyncRead. Do not
+change URDF/SRDF limits or offsets to mask the ID 15 mechanical-reference issue.
 
 ## Installation
 
-Install the exact ROS packages through the ROS 2 Jazzy apt repository:
+Install the ROS dependencies from the ROS 2 Jazzy apt repository:
 
 ```bash
 sudo apt-get install \
@@ -127,41 +124,20 @@ cd /path/to/ros2_manipulator_mcp
 uv sync --frozen
 ```
 
-The project declares NumPy and PyYAML because installed Jazzy Python modules
-import them when used from the isolated uv environment.
-
-## Configuration
+## Configuration and startup
 
 The packaged configuration is
-`src/ros2_manipulator_mcp/config/default.toml`. Select another file with:
+`src/ros2_manipulator_mcp/config/default.toml`. Select a deployment-specific
+copy with `ROS2_MANIPULATOR_MCP_CONFIG`. The default selects the
+`ros2_jazzy_moveit` backend and `open_manipulator_x` profile and has:
 
-```bash
-export ROS2_MANIPULATOR_MCP_CONFIG=/path/to/config.toml
+```toml
+[execution]
+enabled = false
 ```
 
-The default configuration selects the `ros2_jazzy_moveit` backend and
-`open_manipulator_x` profile, uses a five-second service timeout, rejects
-physical execution, and defines the effective planning/Cartesian/scene
-policy. Empty group, object-prefix, and scene-frame allow-lists mean those
-properties are unrestricted by that specific allow-list; other validation
-still applies. Review defaults before deployment.
-
-The adapter has typed endpoint defaults for the root-namespace MoveIt graph:
-`/joint_states`, `/compute_ik`, `/compute_fk`, `/check_state_validity`,
-`/compute_cartesian_path`, `/plan_kinematic_path`, `/get_planning_scene`, and
-`/apply_planning_scene`. Alternative endpoint names require constructing the
-adapter with `JazzyMoveItSettings`; they are not TOML options in v0.1.0.
-
-Stored plans are process-local and immutable. The default `PlanRegistry`
-holds at most 32 plans for 300 seconds. These limits are code-level defaults,
-not configuration-file settings in v0.1.0, and plans disappear when the
-server exits.
-
-## Starting the server
-
-Start the desired ROS 2 / MoveIt planning graph first. For the verified
-official mock-hardware baseline, use separate sourced terminals and an
-isolated domain:
+For planning-only use, start the desired ROS 2/MoveIt graph and then start the
+stdio server from a ROS-sourced shell. The verified mock-hardware example is:
 
 ```bash
 export ROS_DOMAIN_ID=66
@@ -175,94 +151,65 @@ ros2 launch open_manipulator_moveit_config open_manipulator_x_moveit.launch.py \
   start_rviz:=false
 ```
 
-Then run the stdio server from a ROS-sourced shell:
-
 ```bash
 source /opt/ros/jazzy/setup.bash
 export ROS_DOMAIN_ID=66
 uv run ros2-manipulator-mcp
 ```
 
-The server writes MCP protocol messages to stdout. Do not use that terminal
-for interactive input outside an MCP client.
+The server writes MCP protocol messages to stdout. A client that does not
+inherit a ROS-sourced environment should use a wrapper that sources Jazzy and
+then `exec`s `.venv/bin/ros2-manipulator-mcp`.
 
-## Connecting an MCP client
+To enable execution intentionally, make a reviewed deployment-specific copy of
+the configuration, set `[execution] enabled = true`, point
+`ROS2_MANIPULATOR_MCP_CONFIG` at that copy, and restart the server. This switch
+does not authorize a particular motion or make the system safe: operators must
+separately establish hardware readiness, clearance, observation, and immediate
+physical cutoff access. Never enable execution merely to inspect or plan.
 
-Configure an MCP 2026-07-28 client to spawn the stdio command. If the client
-does not inherit a ROS-sourced environment, a shell wrapper can source Jazzy
-before replacing itself with the server:
+## Planning and execution workflow
 
-```json
-{
-  "mcpServers": {
-    "ros2-manipulator": {
-      "command": "/bin/bash",
-      "args": [
-        "-lc",
-        "source /opt/ros/jazzy/setup.bash && export ROS_DOMAIN_ID=66 && exec /path/to/ros2_manipulator_mcp/.venv/bin/ros2-manipulator-mcp"
-      ]
-    }
-  }
-}
-```
+A bounded planning workflow is:
 
-Replace the project path and domain for the deployment. The verified modern
-protocol flow uses `server/discover`; SDK 2.0.0's legacy `initialize()` path
-negotiates an older protocol revision.
+1. Inspect overview, health, safety, current-state, group, and scene Resources.
+2. Validate the fresh current state and select a returned planning group.
+3. Plan a joint, pose, or Cartesian goal with conservative scaling.
+4. Inspect the opaque `plan_id` and call `validate_motion_plan`.
+5. Discard the plan if it will not be executed.
 
-## Representative workflow
+When execution is explicitly enabled and separately authorized:
 
-A conservative planning workflow is:
-
-1. Read `manipulator://overview`, `manipulator://health`,
-   `manipulator://safety`, `manipulator://state/current`, and
-   `manipulator://scene`.
-2. Select a returned planning group and validate the current state.
-3. Call `plan_to_joint_goal` or `plan_to_pose_goal` with conservative scaling.
-4. Inspect the returned opaque `plan_id` with `get_motion_plan` or
-   `manipulator://plans/{plan_id}`.
-5. Call `validate_motion_plan`.
-6. Discard the plan when finished.
-7. Stop. There is no execution operation.
-
-For scene changes, inspect the scene and safety Resource first, add one
-policy-compatible primitive, verify it, and remove it. Policy rejection is a
-structured Tool error and does not call the backend mutation.
+1. Reconfirm current physical and backend readiness.
+2. Call `execute_motion_plan(plan_id)` once; never submit a raw trajectory.
+3. Observe `get_execution_status` or the execution Resource to a terminal state.
+4. Treat telemetry, controller result, and physical observation as separate
+   evidence.
+5. Use `cancel_execution` only as an application stop request, never as an
+   emergency-stop substitute.
 
 ## Testing
 
-Run the normal graph-independent suite:
+Run the normal graph-independent regression suite with:
 
 ```bash
 uv run pytest -q
 ```
 
-Six ROS/MoveIt integration tests are opt-in. They require the documented
-OpenMANIPULATOR-X mock graph and never execute trajectories:
+Live integration tests are opt-in and require the documented official
+OpenMANIPULATOR-X mock graph. Each integration module documents its required
+`ROS2_MANIPULATOR_MCP_RUN_*` environment gate. Phase 20 hardware results are
+documented evidence and are not part of routine regression.
 
-```bash
-source /opt/ros/jazzy/setup.bash
-export ROS_DOMAIN_ID=66
-export ROS2_MANIPULATOR_MCP_RUN_LIVE_TESTS=1
-uv run pytest -q tests/integration
-```
+## Known scope limits
 
-Phase 12 includes no fabricated physical-hardware test result.
+v0.2.0 provides one production composition profile, one stdio transport,
+primitive collision objects, and process-local plans and executions. It does
+not provide attach/detach, meshes, Servo/jogging, Hybrid Planning, MoveIt Task
+Constructor, perception, navigation, task orchestration, controller or hardware
+management, persistent plan storage, authentication, or certified safety.
 
-## Limitations and v0.2.0 direction
-
-v0.1.0 supports one production composition profile, one stdio transport,
-primitive collision objects, process-local plans, and service/topic-based
-Jazzy MoveIt integration. It does not include physical execution,
-attach/detach, mesh objects, Servo/jogging, Hybrid Planning, MoveIt Task
-Constructor, controller or hardware management, perception, navigation,
-task orchestration, resource subscriptions, or persistent plan storage.
-
-Possible v0.2.0 work requires separate approval and may include additional
-profiles/configurability and carefully scoped capabilities. Physical
-execution is not implied by this direction.
-
-Development and verification history is indexed in
+The development history and exact verification evidence are indexed in
 [docs/README_PHASES.md](docs/README_PHASES.md).
 
 ## License

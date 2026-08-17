@@ -24,6 +24,8 @@ This index records only completed or approved project phases. Later phases are n
 | 17 - Production Execution Backend and Workflow | [README_PHASE_17.md](README_PHASE_17.md) | Complete; mock-hardware verification only |
 | 18 - MCP Execution Surface and Mock E2E | [README_PHASE_18.md](README_PHASE_18.md) | Complete; physical execution remains disabled by default |
 | 19 - v0.2.0 Mock Execution Audit and RC Preparation | [README_PHASE_19.md](README_PHASE_19.md) | Complete; mock-only robustness audit |
+| 20 - v0.2.0 Execution Verification | [README_PHASE_20.md](README_PHASE_20.md) | Complete for v0.2.0; real execution verified, mock cancellation verified, accepted hardware limitations documented |
+| 21 - v0.2.0 Final Audit and Release Readiness | [README_PHASE_21.md](README_PHASE_21.md) | Complete; release-ready with documented limitations |
 
 The approved architecture is:
 

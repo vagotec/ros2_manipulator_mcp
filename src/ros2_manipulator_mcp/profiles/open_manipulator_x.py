@@ -23,7 +23,9 @@ OPEN_MANIPULATOR_X_DESCRIPTOR = ManipulatorDescriptor(
         ),
         PlanningGroup(
             name="gripper",
-            joint_names=("gripper_left_joint", "gripper_right_joint"),
+            # The right finger is a URDF mimic joint. MoveIt plans and the
+            # gripper controller command only the independent left joint.
+            joint_names=("gripper_left_joint",),
             link_names=(
                 "link5",
                 "gripper_left_link",

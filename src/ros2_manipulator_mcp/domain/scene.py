@@ -12,7 +12,7 @@ from ros2_manipulator_mcp.domain.state import RobotState
 
 
 class PrimitiveType(StrEnum):
-    """Primitive geometry supported by public v0.1.0 scene operations."""
+    """Primitive geometry supported by public scene operations."""
 
     BOX = "box"
     SPHERE = "sphere"

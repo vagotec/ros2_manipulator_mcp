@@ -65,7 +65,7 @@ class WorkspaceBounds:
 
 @dataclass(frozen=True)
 class SafetyPolicy:
-    """Configuration-driven limits for public v0.1.0 operations."""
+    """Configuration-driven limits for public operations."""
 
     policy_id: str = "default-v1"
     allowed_planning_groups: tuple[str, ...] = ()

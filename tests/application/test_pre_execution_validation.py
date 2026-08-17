@@ -177,6 +177,64 @@ def test_missing_required_joint_rejects_with_stable_finding() -> None:
     assert plans.discard("plan").value is True
 
 
+def test_uncommanded_mimic_joint_is_not_required_by_execution_gate() -> None:
+    """A group descriptor must expose only independently commanded joints."""
+    backend = ValidationBackend()
+    backend.descriptor = ManipulatorDescriptor(
+        "test-gripper",
+        "base",
+        (
+            PlanningGroup(
+                "gripper",
+                ("gripper_left_joint",),
+                ("base", "left_finger", "right_finger"),
+                "base",
+            ),
+        ),
+    )
+    backend.state = RobotState(
+        JointState(
+            ("gripper_left_joint", "gripper_right_joint"),
+            (0.01, 0.01),
+        ),
+        timestamp_seconds=10.0,
+        sample_age_seconds=0.01,
+    )
+    backend.scene = PlanningSceneSnapshot("scene-1", ())
+    plans = PlanRegistry(id_factory=lambda: "plan")
+    plans.store(
+        request=PlanningRequest(
+            JointGoal("gripper", ("gripper_left_joint",), (0.02,)),
+            max_velocity_scaling_factor=0.05,
+            max_acceleration_scaling_factor=0.05,
+        ),
+        trajectory=Trajectory(
+            ("gripper_left_joint",),
+            (TrajectoryPoint((0.01,), 0.0),),
+        ),
+        planning_duration_seconds=0.1,
+        scene_revision="scene-1",
+        policy_id="default-v1",
+    )
+    service = ManipulatorService(
+        description=backend,
+        state=backend,
+        kinematics=backend,
+        planning=backend,
+        scene=backend,
+        plans=plans,
+        executions=ExecutionRegistry(id_factory=lambda: "execution"),
+        execution_enabled=True,
+    )
+
+    validation = _prepare_and_validate(service)
+
+    assert validation.value.valid is True
+    assert validation.value.findings == ()
+    assert validation.value.start_state_matches is True
+    assert service.get_execution_status("execution").value.state is ExecutionState.STARTING
+
+
 def test_backend_state_failure_is_bounded_and_releases_plan() -> None:
     """Readiness failure becomes a stable finding rather than an exception."""
     service, plans, backend = _fixture()

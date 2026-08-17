@@ -68,7 +68,7 @@ from ros2_manipulator_mcp.ros.jazzy.settings import JazzyMoveItSettings
 
 
 class JazzyManipulatorAdapter:
-    """Implement all v0.1.0 backend ports without exposing ROS values."""
+    """Implement backend ports without exposing ROS values."""
 
     def __init__(
         self,
